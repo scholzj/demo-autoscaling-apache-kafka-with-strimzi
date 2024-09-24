@@ -1,0 +1,19 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: load-test
+  labels:
+    strimzi.io/cluster: my-cluster
+spec:
+  partitions: 100
+  replicas: 3
+  config:
+    min.insync.replicas: 2
+    retention.bytes: 10737418240 # ~10 Gi
+    retention.ms: 7200000 # 1 hour
+    segment.bytes: 10485760 # ~10MB
+    file.delete.delay.ms: 1000
+    # Tiered storage configuration
+    remote.storage.enable: true
+    local.retention.ms: 60000 # 1 minute
+    local.retention.bytes: 50000000 # 50 MB

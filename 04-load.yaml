@@ -1,0 +1,110 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: kafka-producer
+  name: kafka-producer
+spec:
+  parallelism: 5
+  completions: 5
+  backoffLimit: 1
+  template:
+    metadata:
+      name: kafka-producer
+      labels:
+        app: kafka-producer
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: kafka-producer
+        image: quay.io/strimzi/kafka:0.43.0-kafka-3.8.0
+        command: [ "bin/kafka-producer-perf-test.sh" ]
+        args: [ "--topic", "load-test", "--throughput", "1000000000", "--num-records", "1000000000", "--producer-props", "acks=all", "bootstrap.servers=my-cluster-kafka-bootstrap:9093", "security.protocol=SSL", "ssl.truststore.type=PKCS12", "ssl.truststore.password=$(CA_PASSWORD)", "ssl.truststore.location=/etc/strimzi/ca.p12", "--record-size", "1000" ]
+        volumeMounts:
+        - name: strimzi-ca
+          readOnly: true
+          mountPath: "/etc/strimzi"
+        env:
+        - name: CA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: my-cluster-cluster-ca-cert
+              key: ca.password
+      volumes:
+      - name: strimzi-ca
+        secret:
+          secretName: my-cluster-cluster-ca-cert
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: kafka-consumer
+  name: kafka-consumer
+spec:
+  parallelism: 5
+  completions: 5
+  backoffLimit: 1
+  template:
+    metadata:
+      name: kafka-consumer
+      labels:
+        app: kafka-consumer
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: kafka-consumer
+        image: quay.io/strimzi/kafka:0.43.0-kafka-3.8.0
+        command: [ "/bin/sh" ]
+        args: [ "-c", "echo \"security.protocol=SSL\" > /tmp/consumer.config; echo \"ssl.truststore.type=PKCS12\" >> /tmp/consumer.config; echo \"ssl.truststore.location=/etc/strimzi/ca.p12\" >> /tmp/consumer.config; echo \"ssl.truststore.password=$(CA_PASSWORD)\" >> /tmp/consumer.config; bin/kafka-consumer-perf-test.sh --topic load-test --messages 1000000000 --bootstrap-server my-cluster-kafka-bootstrap:9093 --show-detailed-stats --timeout 300000 --group load-consumer --consumer.config /tmp/consumer.config" ]
+        volumeMounts:
+        - name: strimzi-ca
+          readOnly: true
+          mountPath: "/etc/strimzi"
+        env:
+        - name: CA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: my-cluster-cluster-ca-cert
+              key: ca.password
+      volumes:
+      - name: strimzi-ca
+        secret:
+          secretName: my-cluster-cluster-ca-cert
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: kafka-consumer2
+  name: kafka-consumer2
+spec:
+  parallelism: 5
+  completions: 5
+  backoffLimit: 1
+  template:
+    metadata:
+      name: kafka-consumer2
+      labels:
+        app: kafka-consumer2
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: kafka-consumer
+        image: quay.io/strimzi/kafka:0.43.0-kafka-3.8.0
+        command: [ "/bin/sh" ]
+        args: [ "-c", "echo \"security.protocol=SSL\" > /tmp/consumer.config; echo \"ssl.truststore.type=PKCS12\" >> /tmp/consumer.config; echo \"ssl.truststore.location=/etc/strimzi/ca.p12\" >> /tmp/consumer.config; echo \"ssl.truststore.password=$(CA_PASSWORD)\" >> /tmp/consumer.config; bin/kafka-consumer-perf-test.sh --topic load-test --messages 1000000000 --bootstrap-server my-cluster-kafka-bootstrap:9093 --show-detailed-stats --timeout 300000 --group load-consumer2 --consumer.config /tmp/consumer.config" ]
+        volumeMounts:
+        - name: strimzi-ca
+          readOnly: true
+          mountPath: "/etc/strimzi"
+        env:
+        - name: CA_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: my-cluster-cluster-ca-cert
+              key: ca.password
+      volumes:
+      - name: strimzi-ca
+        secret:
+          secretName: my-cluster-cluster-ca-cert

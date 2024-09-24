@@ -1,0 +1,378 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: my-cluster
+  labels:
+    app: my-cluster
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    image: quay.io/scholzj/kafka:0.43.0-kafka-3.8.0-ts
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      auto.create.topics.enable: "false"
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      # Cruise Control
+      cruise.control.metrics.reporter.metrics.reporting.interval.ms: 5000
+      cruise.control.metrics.reporter.metadata.max.age.ms: 5000
+      cruise.control.metrics.topic.replication.factor: 1
+      cruise.control.metrics.topic.min.insync.replicas: 1
+      # Tiered storage
+      remote.log.manager.task.interval.ms: 5000
+      # Delete segments ever 10 seconds
+      log.retention.check.interval.ms: 10000
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: kafka-metrics.yaml
+    tieredStorage:
+      type: custom
+      remoteStorageManager:
+        className: io.aiven.kafka.tieredstorage.RemoteStorageManager
+        classPath: /opt/kafka/tiered-storage-filesystem/*
+        config:
+          storage.backend.class: io.aiven.kafka.tieredstorage.storage.filesystem.FileSystemStorage
+          storage.root: /mnt/tiered-storage/
+          storage.overwrite.enabled: "true"
+          chunk.size: "4194304" # 4 MiB
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: "0.2"
+        limits:
+          memory: 256Mi
+          cpu: "0.5"
+    userOperator:
+      resources:
+        requests:
+          memory: 512Mi
+          cpu: "0.2"
+        limits:
+          memory: 512Mi
+          cpu: "0.5"
+  kafkaExporter:
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: "0.1"
+      limits:
+        memory: 256Mi
+        cpu: "0.5"
+  cruiseControl:
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 500m
+      limits:
+        memory: 1Gi
+        cpu: 1000m
+    config:
+      max.active.user.tasks: 10
+      metric.sampling.interval.ms: 5000
+      metadata.max.age.ms: 5000
+      sample.store.topic.replication.factor: 1
+      partition.sample.store.topic.partition.count: 1
+      broker.sample.store.topic.partition.count: 1
+      skip.sample.store.topic.rack.awareness.check: true
+      partition.metrics.window.ms: 10000
+      broker.metrics.window.ms: 10000
+      monitor.state.update.interval.ms: 10000
+      cruise.control.metrics.reporter.metrics.reporting.interval.ms: 5000
+    autoRebalance:
+      - mode: add-brokers
+        template:
+          name: my-cluster-auto-rebalancing-template
+      - mode: remove-brokers
+        template:
+          name: my-cluster-auto-rebalancing-template
+    metricsConfig:
+       type: jmxPrometheusExporter
+       valueFrom:
+         configMapKeyRef:
+           name: kafka-metrics
+           key: cruise-control-metrics.yaml
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: controllers
+  labels:
+    strimzi.io/cluster: my-cluster
+  annotations:
+    strimzi.io/next-node-ids: "[0-9]"
+    strimzi.io/remove-node-ids: "[9-0]"
+spec:
+  roles:
+    - controller
+  replicas: 3
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: "1"
+  jvmOptions:
+    -Xms: 1024m
+    -Xmx: 1024m
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 100Gi
+        deleteClaim: true
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: broker
+  labels:
+    strimzi.io/cluster: my-cluster
+  annotations:
+    strimzi.io/next-node-ids: "[10-99]"
+    strimzi.io/remove-node-ids: "[99-10]"
+spec:
+  roles:
+    - broker
+  replicas: 3
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 2Gi
+      cpu: "1"
+  jvmOptions:
+    -Xms: 1024m
+    -Xmx: 1024m
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        size: 100Gi
+        deleteClaim: true
+  template:
+    pod:
+      volumes:
+        - name: tiered-storage
+          persistentVolumeClaim:
+            claimName: tiered-storage-nfs
+    kafkaContainer:
+      volumeMounts:
+        - name: tiered-storage
+          mountPath: /mnt/tiered-storage/
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaRebalance
+metadata:
+  name: my-cluster-auto-rebalancing-template
+  annotations:
+    strimzi.io/rebalance: template
+spec:
+  skipHardGoalCheck: true
+  goals:
+    - LeaderReplicaDistributionGoal
+    - LeaderBytesInDistributionGoal
+    - DiskUsageDistributionGoal
+    - CpuUsageDistributionGoal
+    - ReplicaDistributionGoal
+    - NetworkInboundUsageDistributionGoal
+    - NetworkOutboundUsageDistributionGoal
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: kafka-metrics
+  labels:
+    app: strimzi
+data:
+  kafka-metrics.yaml: |
+    # See https://github.com/prometheus/jmx_exporter for more info about JMX Prometheus Exporter metrics
+    lowercaseOutputName: true
+    rules:
+      # Special cases and very specific rules
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          topic: "$4"
+          partition: "$5"
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          broker: "$4:$5"
+      - pattern: kafka.server<type=(.+), cipher=(.+), protocol=(.+), listener=(.+), networkProcessor=(.+)><>connections
+        name: kafka_server_$1_connections_tls_info
+        type: GAUGE
+        labels:
+          cipher: "$2"
+          protocol: "$3"
+          listener: "$4"
+          networkProcessor: "$5"
+      - pattern: kafka.server<type=(.+), clientSoftwareName=(.+), clientSoftwareVersion=(.+), listener=(.+), networkProcessor=(.+)><>connections
+        name: kafka_server_$1_connections_software
+        type: GAUGE
+        labels:
+          clientSoftwareName: "$2"
+          clientSoftwareVersion: "$3"
+          listener: "$4"
+          networkProcessor: "$5"
+      - pattern: "kafka.server<type=(.+), listener=(.+), networkProcessor=(.+)><>(.+-total):"
+        name: kafka_server_$1_$4
+        type: COUNTER
+        labels:
+          listener: "$2"
+          networkProcessor: "$3"
+      - pattern: "kafka.server<type=(.+), listener=(.+), networkProcessor=(.+)><>(.+):"
+        name: kafka_server_$1_$4
+        type: GAUGE
+        labels:
+          listener: "$2"
+          networkProcessor: "$3"
+      - pattern: kafka.server<type=(.+), listener=(.+), networkProcessor=(.+)><>(.+-total)
+        name: kafka_server_$1_$4
+        type: COUNTER
+        labels:
+          listener: "$2"
+          networkProcessor: "$3"
+      - pattern: kafka.server<type=(.+), listener=(.+), networkProcessor=(.+)><>(.+)
+        name: kafka_server_$1_$4
+        type: GAUGE
+        labels:
+          listener: "$2"
+          networkProcessor: "$3"
+      # Some percent metrics use MeanRate attribute
+      # Ex) kafka.server<type=(KafkaRequestHandlerPool), name=(RequestHandlerAvgIdlePercent)><>MeanRate
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)Percent\w*><>MeanRate
+        name: kafka_$1_$2_$3_percent
+        type: GAUGE
+      # Generic gauges for percents
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)Percent\w*><>Value
+        name: kafka_$1_$2_$3_percent
+        type: GAUGE
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)Percent\w*, (.+)=(.+)><>Value
+        name: kafka_$1_$2_$3_percent
+        type: GAUGE
+        labels:
+          "$4": "$5"
+      # Generic per-second counters with 0-2 key/value pairs
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)PerSec\w*, (.+)=(.+), (.+)=(.+)><>Count
+        name: kafka_$1_$2_$3_total
+        type: COUNTER
+        labels:
+          "$4": "$5"
+          "$6": "$7"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)PerSec\w*, (.+)=(.+)><>Count
+        name: kafka_$1_$2_$3_total
+        type: COUNTER
+        labels:
+          "$4": "$5"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)PerSec\w*><>Count
+        name: kafka_$1_$2_$3_total
+        type: COUNTER
+      # Generic gauges with 0-2 key/value pairs
+      - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.+), (.+)=(.+)><>Value
+        name: kafka_$1_$2_$3
+        type: GAUGE
+        labels:
+          "$4": "$5"
+          "$6": "$7"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.+)><>Value
+        name: kafka_$1_$2_$3
+        type: GAUGE
+        labels:
+          "$4": "$5"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)><>Value
+        name: kafka_$1_$2_$3
+        type: GAUGE
+      # Emulate Prometheus 'Summary' metrics for the exported 'Histogram's.
+      # Note that these are missing the '_sum' metric!
+      - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.+), (.+)=(.+)><>Count
+        name: kafka_$1_$2_$3_count
+        type: COUNTER
+        labels:
+          "$4": "$5"
+          "$6": "$7"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.*), (.+)=(.+)><>(\d+)thPercentile
+        name: kafka_$1_$2_$3
+        type: GAUGE
+        labels:
+          "$4": "$5"
+          "$6": "$7"
+          quantile: "0.$8"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.+)><>Count
+        name: kafka_$1_$2_$3_count
+        type: COUNTER
+        labels:
+          "$4": "$5"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+), (.+)=(.*)><>(\d+)thPercentile
+        name: kafka_$1_$2_$3
+        type: GAUGE
+        labels:
+          "$4": "$5"
+          quantile: "0.$6"
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)><>Count
+        name: kafka_$1_$2_$3_count
+        type: COUNTER
+      - pattern: kafka.(\w+)<type=(.+), name=(.+)><>(\d+)thPercentile
+        name: kafka_$1_$2_$3
+        type: GAUGE
+        labels:
+          quantile: "0.$4"
+      # KRaft mode: uncomment the following lines to export KRaft related metrics
+      # KRaft overall related metrics
+      # distinguish between always increasing COUNTER (total and max) and variable GAUGE (all others) metrics
+      - pattern: "kafka.server<type=raft-metrics><>(.+-total|.+-max):"
+        name: kafka_server_raftmetrics_$1
+        type: COUNTER
+      - pattern: "kafka.server<type=raft-metrics><>(current-state): (.+)"
+        name: kafka_server_raftmetrics_$1
+        value: 1
+        type: UNTYPED
+        labels:
+          $1: "$2"
+      - pattern: "kafka.server<type=raft-metrics><>(.+):"
+        name: kafka_server_raftmetrics_$1
+        type: GAUGE
+      # KRaft "low level" channels related metrics
+      # distinguish between always increasing COUNTER (total and max) and variable GAUGE (all others) metrics
+      - pattern: "kafka.server<type=raft-channel-metrics><>(.+-total|.+-max):"
+        name: kafka_server_raftchannelmetrics_$1
+        type: COUNTER
+      - pattern: "kafka.server<type=raft-channel-metrics><>(.+):"
+        name: kafka_server_raftchannelmetrics_$1
+        type: GAUGE
+      # Broker metrics related to fetching metadata topic records in KRaft mode
+      - pattern: "kafka.server<type=broker-metadata-metrics><>(.+):"
+        name: kafka_server_brokermetadatametrics_$1
+        type: GAUGE
+  cruise-control-metrics.yaml: |
+    # See https://github.com/prometheus/jmx_exporter for more info about JMX Prometheus Exporter metrics
+    lowercaseOutputName: true
+    rules:
+      - pattern: kafka.cruisecontrol<name=(.+)><>(\w+)
+        name: kafka_cruisecontrol_$1_$2
+        type: GAUGE
