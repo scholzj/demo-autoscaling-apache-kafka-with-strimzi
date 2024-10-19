@@ -9,7 +9,7 @@ metadata:
     strimzi.io/kraft: enabled
 spec:
   kafka:
-    image: quay.io/scholzj/kafka:0.43.0-kafka-3.8.0-ts
+    image: quay.io/scholzj/kafka:latest-kafka-3.8.0-ts
     listeners:
       - name: plain
         port: 9092
@@ -187,7 +187,7 @@ kind: KafkaRebalance
 metadata:
   name: my-cluster-auto-rebalancing-template
   annotations:
-    strimzi.io/rebalance: template
+    strimzi.io/rebalance-template: "true"
 spec:
   skipHardGoalCheck: true
   goals:
