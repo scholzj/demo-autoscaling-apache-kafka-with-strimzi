@@ -9,7 +9,7 @@ metadata:
     strimzi.io/kraft: enabled
 spec:
   kafka:
-    image: quay.io/scholzj/kafka:0.44.0-kafka-3.8.0-ts
+    image: quay.io/scholzj/kafka:0.45.0-tiered-storage-kafka-3.9.0
     listeners:
       - name: plain
         port: 9092
