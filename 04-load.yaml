@@ -17,7 +17,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: kafka-producer
-        image: quay.io/strimzi/kafka:0.45.0-kafka-3.9.0
+        image: quay.io/strimzi/kafka:0.46.0-kafka-4.0.0
         command: [ "bin/kafka-producer-perf-test.sh" ]
         args: [ "--topic", "load-test", "--throughput", "1000000000", "--num-records", "1000000000", "--producer-props", "acks=all", "bootstrap.servers=my-cluster-kafka-bootstrap:9093", "security.protocol=SSL", "ssl.truststore.type=PKCS12", "ssl.truststore.password=$(CA_PASSWORD)", "ssl.truststore.location=/etc/strimzi/ca.p12", "--record-size", "1000" ]
         volumeMounts:
@@ -54,7 +54,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: kafka-consumer
-        image: quay.io/strimzi/kafka:0.45.0-kafka-3.9.0
+        image: quay.io/strimzi/kafka:0.46.0-kafka-4.0.0
         command: [ "/bin/sh" ]
         args: [ "-c", "echo \"security.protocol=SSL\" > /tmp/consumer.config; echo \"ssl.truststore.type=PKCS12\" >> /tmp/consumer.config; echo \"ssl.truststore.location=/etc/strimzi/ca.p12\" >> /tmp/consumer.config; echo \"ssl.truststore.password=$(CA_PASSWORD)\" >> /tmp/consumer.config; bin/kafka-consumer-perf-test.sh --topic load-test --messages 1000000000 --bootstrap-server my-cluster-kafka-bootstrap:9093 --show-detailed-stats --timeout 300000 --group load-consumer --consumer.config /tmp/consumer.config" ]
         volumeMounts:
@@ -91,7 +91,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: kafka-consumer
-        image: quay.io/strimzi/kafka:0.45.0-kafka-3.9.0
+        image: quay.io/strimzi/kafka:0.46.0-kafka-4.0.0
         command: [ "/bin/sh" ]
         args: [ "-c", "echo \"security.protocol=SSL\" > /tmp/consumer.config; echo \"ssl.truststore.type=PKCS12\" >> /tmp/consumer.config; echo \"ssl.truststore.location=/etc/strimzi/ca.p12\" >> /tmp/consumer.config; echo \"ssl.truststore.password=$(CA_PASSWORD)\" >> /tmp/consumer.config; bin/kafka-consumer-perf-test.sh --topic load-test --messages 1000000000 --bootstrap-server my-cluster-kafka-bootstrap:9093 --show-detailed-stats --timeout 300000 --group load-consumer2 --consumer.config /tmp/consumer.config" ]
         volumeMounts:

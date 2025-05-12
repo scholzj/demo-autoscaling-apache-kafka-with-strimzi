@@ -9,7 +9,7 @@ metadata:
     strimzi.io/kraft: enabled
 spec:
   kafka:
-    image: quay.io/scholzj/kafka:0.45.0-tiered-storage-kafka-3.9.0
+    image: quay.io/scholzj/kafka:0.46.0-tiered-storage-kafka-4.0.0
     listeners:
       - name: plain
         port: 9092
@@ -113,7 +113,7 @@ spec:
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaNodePool
 metadata:
-  name: controllers
+  name: controller
   labels:
     strimzi.io/cluster: my-cluster
   annotations:
